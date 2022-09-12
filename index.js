@@ -1,4 +1,11 @@
-const { Client, GatewayIntentBits, EmbedBuilder, SlashCommandBuilder, Routes } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  SlashCommandBuilder,
+  Routes,
+} = require("discord.js");
+
 const { REST } = require("@discordjs/rest");
 const { request } = require("undici");
 const net = require("node:net");
@@ -16,15 +23,20 @@ client.once("ready", () => {
 client.login(process.env.TOKEN);
 
 const commands = [
+  
   new SlashCommandBuilder()
     .setName("ping")
     .setDescription("Look-up and ping an IP address.")
     .addStringOption((option) =>
       option.setName("ip").setDescription("IP Address")
     ),
+
   new SlashCommandBuilder()
     .setName("serverinfo")
     .setDescription("View this bot infrastructure."),
+
+  new SlashCommandBuilder().setName("nuke").setDescription("Nuke a channel."),
+
 ].map((command) => command.toJSON());
 
 client.on("interactionCreate", async (interaction) => {
@@ -40,11 +52,11 @@ client.on("interactionCreate", async (interaction) => {
   await interaction.deferReply();
 
   if (commandName === "ping") {
-    const ipInput = interaction.options.getString("ipAddress");
+    const ipInput = interaction.options.getString("ip");
 
     if (!ipInput) {
       await interaction.editReply({
-        content: "You must spectify a IP address first!",
+        content: "You must specify an IP address first!",
         components: [],
       });
     } else {
@@ -52,6 +64,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const result = await ping.promise.probe(ipInput, {
         timeout: 10,
+        extra: ["-i", "2"],
       });
 
       const { timezone, as, regionName, country, city } = await getJSONResponse(
@@ -128,13 +141,28 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.editReply({ embeds: [serverEmbed] });
   }
+
+  if (commandName === "nuke") {
+    interaction.channel.clone().then((channel) => {
+      const serverEmbed = new EmbedBuilder()
+        .setColor("#32a858")
+        .setTitle("Channel Nuked")
+        .setDescription("Everything went poof.")
+        .setImage("https://media.giphy.com/media/GzVvGQYhFZIAg/giphy.gif")
+        .setFooter({ text: "Requested by " + userTag })
+        .setTimestamp();
+
+      channel.send({ embeds: [serverEmbed] });
+    });
+    interaction.channel.delete();
+  }
 });
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
 rest
   .put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands })
   .then((data) =>
-    console.log(`Successfully registered ${data.length} application commands.`)
+    console.log(`Successfully registered ${data.length} slash commands.`)
   )
   .catch(console.error);
 
