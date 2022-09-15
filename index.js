@@ -22,7 +22,10 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 client.once("ready", () => {
   Data.sync();
-  console.log(`Logged in as ${client.user.tag}!`);
+
+  client.user.setPresence({ activities: [{ name: 'Swiftify.app' }] });
+
+  console.log(`Logged in as ${client.user.tag}.`);
 });
 
 client.login(config.token);
@@ -45,7 +48,7 @@ const Data = sequelize.define("data", {
   hostname: Sequelize.STRING,
   down: Sequelize.BOOLEAN,
   downtime: {
-    type: Sequelize.INTEGER,
+    type: Sequelize.DATE,
     allowNull: false,
   },
   port: {
@@ -88,7 +91,14 @@ const commands = [
       option.setName("port").setDescription("Port")
     ),
 
-  new SlashCommandBuilder().setName("nuke").setDescription("Nuke a channel."),
+  new SlashCommandBuilder()
+    .setName("remove")
+    .setDescription("Remove a monitor from the list.")
+    .addStringOption((option) =>
+      option.setName("name").setDescription("Display Name")
+    ),
+
+  // new SlashCommandBuilder().setName("nuke").setDescription("Nuke a channel."),
 ].map((command) => command.toJSON());
 
 client.on("interactionCreate", async (interaction) => {
@@ -114,6 +124,7 @@ client.on("interactionCreate", async (interaction) => {
     } else {
       const ipResult = await request(config.ip_lookup_api + ipInput);
 
+      // idk if this works on linux
       const result = await ping.promise.probe(ipInput, {
         timeout: 10,
         extra: ["-i", "2"],
@@ -162,7 +173,7 @@ client.on("interactionCreate", async (interaction) => {
     let usedMB = mb.used / 1000000000;
     let totalMB = mb.total / 1000000000;
 
-    const vm = sys.virtual ? "Yes" : "No";
+    const vm = sys.virtual ? "Yes" : "No"; // why not?
     const serverEmbed = new EmbedBuilder()
       .setColor("#32a858")
       .setTitle("Bot Infrastructure")
@@ -250,6 +261,26 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
   }
+
+  if (commandName === "remove") {
+    const monitorName = interaction.options.getString("name");
+    // equivalent to: DELETE from tags WHERE name = ?;
+    const monitor = await Data.destroy({
+      where: { display_name: monitorName },
+    });
+
+    if (!monitor) {
+      await interaction.editReply({
+        content: "That monitor doesn't exists!",
+        components: [],
+      });
+    } else {
+      await interaction.editReply({
+        content: "**" + monitorName + "** has been successfully deleted.",
+        components: [],
+      });
+    }
+  }
 });
 const rest = new REST({ version: "10" }).setToken(config.token);
 
@@ -300,63 +331,93 @@ async function isPortReachable(port, { host, timeout = config.timeout } = {}) {
 setInterval(async () => {
   const monitors = await Data.findAll();
 
-  monitors.map(async (d) => {
-    const isAlive = await isPortReachable(d.port, { host: d.hostname });
+  if (monitors) {
+    monitors.map(async (d) => {
+      const isAlive = await isPortReachable(d.port, { host: d.hostname });
 
-    const status = await Data.findOne({
-      where: { display_name: d.display_name },
-    });
-
-    if (isAlive) {
       const status = await Data.findOne({
         where: { display_name: d.display_name },
       });
 
-      if (status.down) {
-        const embed = new EmbedBuilder()
-          .setColor("#32a858")
-          .setTitle(d.display_name + " is now up!")
-          .setDescription(
-            "**Hostname**: " +
-              d.hostname +
-              ":" +
-              d.port +
-              "\n**Check Date**: " +
-              timeString +
-              "\n**Downtime**: Unknown"
+      if (isAlive) {
+        const status = await Data.findOne({
+          where: { display_name: d.display_name },
+        });
+        if (status.down) {
+          var date2;
+          var date1;
+          var Difference_In_Time;
+          if (status.downtime != null) {
+            date2 = new Date();
+            date1 = new Date(status.downtime);
+
+            Difference_In_Time = date1.getTime() - date2.getTime();
+          }
+
+          const downtime =
+            (await Data.findOne({
+              where: { downtime: d.downtime },
+            })) != 0
+              ? status.downtime != null
+                ? Math.round(Difference_In_Time / 1000) + "s"
+                : "Unknown"
+              : "Unknown";
+
+          const embed = new EmbedBuilder()
+            .setColor("#32a858")
+            .setTitle(d.display_name + " is now up!")
+            .setDescription(
+              "**Hostname**: " +
+                "`" +
+                d.hostname +
+                ":" +
+                d.port +
+                "`" +
+                "\n**Check Date**: " +
+                timeString +
+                "\n**Downtime**: " +
+                +downtime
+            );
+
+          sendWebhookMessage(embed, null);
+
+          await Data.update(
+            { down: false },
+            { where: { display_name: d.display_name } }
           );
-
-        sendWebhookMessage(embed, null);
-
+        }
+      } else {
+        var date = new Date();
         await Data.update(
-          { down: false },
+          { downtime: date },
           { where: { display_name: d.display_name } }
         );
-      }
-    } else {
-      if (!status.down) {
-        const embed = new EmbedBuilder()
-          .setColor("#eb4034")
-          .setTitle(d.display_name + " is now down!")
-          .setDescription(
-            "**Hostname**: " +
-              "`" + d.hostname + "`" +
-              ":" +
-              d.port +
-              "\n**Check Date**: " +
-              timeString +
-              "\n**Encountered Error**: Timed Out"
+        if (!status.down) {
+          const embed = new EmbedBuilder()
+            .setColor("#eb4034")
+            .setTitle(d.display_name + " is now down!")
+            .setDescription(
+              "**Hostname**: " +
+                "`" +
+                d.hostname +
+                ":" +
+                d.port +
+                "`" +
+                "\n**Check Date**: " +
+                timeString +
+                "\n**Encountered Error**: Timed Out"
+            );
+
+          sendWebhookMessage(embed, null);
+
+          await Data.update(
+            { down: true },
+            { where: { display_name: d.display_name } }
           );
-
-        sendWebhookMessage(embed, null);
-
-        await Data.update(
-          { down: true },
-          { where: { display_name: d.display_name } }
-        );
+        }
       }
-    }
-  });
+    });
+  }
 }, config.check_duration * 1000); // in seconds
 
 function sendWebhookMessage(embed, message) {
