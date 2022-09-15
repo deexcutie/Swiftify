@@ -4,26 +4,66 @@ const {
   EmbedBuilder,
   SlashCommandBuilder,
   Routes,
+  WebhookClient,
 } = require("discord.js");
 
 const { REST } = require("@discordjs/rest");
 const { request } = require("undici");
 const net = require("node:net");
 const si = require("systeminformation");
+const Sequelize = require("sequelize");
+const { time } = require("discord.js");
+const yaml = require("js-yaml");
+const fs = require("fs");
+
+const config = yaml.load(fs.readFileSync("./settings.yml", "utf8"));
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-require("dotenv").config();
+
+client.once("ready", () => {
+  Data.sync();
+  console.log(`Logged in as ${client.user.tag}!`);
+});
+
+client.login(config.token);
 
 const ping = require("ping");
 
-client.once("ready", () => {
-  console.log("Ready.");
+const sequelize = new Sequelize("database", "user", "password", {
+  host: "localhost",
+  dialect: "sqlite",
+  logging: false,
+  // SQLite only
+  storage: "database.sqlite",
 });
 
-client.login(process.env.TOKEN);
+const Data = sequelize.define("data", {
+  display_name: {
+    type: Sequelize.TEXT,
+    unique: true,
+  },
+  hostname: Sequelize.STRING,
+  down: Sequelize.BOOLEAN,
+  downtime: {
+    type: Sequelize.INTEGER,
+    allowNull: false,
+  },
+  port: {
+    type: Sequelize.INTEGER,
+    defaultValue: 80,
+    allowNull: false,
+  },
+});
+
+const date = new Date();
+
+const timeString = time(date);
+
+const webhookClient = new WebhookClient({
+  url: config.webhook.link,
+});
 
 const commands = [
-  
   new SlashCommandBuilder()
     .setName("ping")
     .setDescription("Look-up and ping an IP address.")
@@ -35,8 +75,20 @@ const commands = [
     .setName("serverinfo")
     .setDescription("View this bot infrastructure."),
 
-  new SlashCommandBuilder().setName("nuke").setDescription("Nuke a channel."),
+  new SlashCommandBuilder()
+    .setName("add")
+    .setDescription("Add a monitor to see its uptime.")
+    .addStringOption((option) =>
+      option.setName("display_name").setDescription("Display Name")
+    )
+    .addStringOption((option) =>
+      option.setName("hostname").setDescription("Hostname")
+    )
+    .addIntegerOption((option) =>
+      option.setName("port").setDescription("Port")
+    ),
 
+  new SlashCommandBuilder().setName("nuke").setDescription("Nuke a channel."),
 ].map((command) => command.toJSON());
 
 client.on("interactionCreate", async (interaction) => {
@@ -60,7 +112,7 @@ client.on("interactionCreate", async (interaction) => {
         components: [],
       });
     } else {
-      const ipResult = await request("http://ip-api.com/json/" + ipInput);
+      const ipResult = await request(config.ip_lookup_api + ipInput);
 
       const result = await ping.promise.probe(ipInput, {
         timeout: 10,
@@ -156,11 +208,51 @@ client.on("interactionCreate", async (interaction) => {
     });
     interaction.channel.delete();
   }
+
+  if (commandName === "add") {
+    const display_name = interaction.options.getString("display_name");
+    const hostname = interaction.options.getString("hostname");
+    const port = interaction.options.getInteger("port");
+
+    if (!display_name || !hostname) {
+      await interaction.editReply({
+        content: "You must specify all required details first!",
+        components: [],
+      });
+    } else {
+      try {
+        const data = await Data.create({
+          display_name: display_name,
+          hostname: hostname,
+          down: await isPortReachable(port, { host: hostname }),
+          downtime: 0,
+          port: port || 80,
+        });
+
+        await interaction.editReply({
+          content: `Monitor **${data.display_name}** added successfully.`,
+          components: [],
+        });
+      } catch (error) {
+        if (error.name === "SequelizeUniqueConstraintError") {
+          await interaction.editReply({
+            content: "That monitor already exists.",
+            components: [],
+          });
+        } else {
+          await interaction.editReply({
+            content: "Something went wrong. (" + error.name + ")",
+            components: [],
+          });
+        }
+      }
+    }
+  }
 });
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
 
 rest
-  .put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands })
+  .put(Routes.applicationCommands(config.client_id), { body: commands })
   .then((data) =>
     console.log(`Successfully registered ${data.length} slash commands.`)
   )
@@ -175,3 +267,98 @@ async function getJSONResponse(body) {
 
   return JSON.parse(fullBody);
 }
+
+async function isPortReachable(port, { host, timeout = config.timeout } = {}) {
+  const promise = new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+
+    const onError = () => {
+      socket.destroy();
+      reject();
+    };
+
+    socket.setTimeout(timeout);
+    socket.once("error", onError);
+    socket.once("timeout", onError);
+
+    socket.connect(port, host, () => {
+      socket.end();
+      resolve();
+    });
+  });
+
+  try {
+    await promise;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+setInterval(async () => {
+  const monitors = await Data.findAll();
+
+  monitors.map(async (d) => {
+    const isAlive = await isPortReachable(d.port, { host: d.hostname });
+
+    const status = await Data.findOne({
+      where: { display_name: d.display_name },
+    });
+
+    if (isAlive) {
+      const status = await Data.findOne({
+        where: { display_name: d.display_name },
+      });
+
+      if (status.down) {
+        const embed = new EmbedBuilder()
+          .setColor("#32a858")
+          .setTitle(d.display_name + " is now up!")
+          .setDescription(
+            "**Hostname**: " +
+              d.hostname +
+              ":" +
+              d.port +
+              "\n**Check Date**: " +
+              timeString +
+              "\n**Downtime**: Unknown"
+          );
+
+        webhookClient.send({
+          embeds: [embed],
+          username: config.webhook.username,
+        });
+
+        await Data.update(
+          { down: false },
+          { where: { display_name: d.display_name } }
+        );
+      }
+    } else {
+      if (!status.down) {
+        const embed = new EmbedBuilder()
+          .setColor("#eb4034")
+          .setTitle(d.display_name + " is now down!")
+          .setDescription(
+            "**Hostname**: " +
+              d.hostname +
+              ":" +
+              d.port +
+              "\n**Check Date**: " +
+              timeString +
+              "\n**Encountered Error**: Timed Out"
+          );
+
+        webhookClient.send({
+          embeds: [embed],
+          username: config.webhook.username,
+        });
+
+        await Data.update(
+          { down: true },
+          { where: { display_name: d.display_name } }
+        );
+      }
+    }
+  });
+}, config.check_duration * 1000);

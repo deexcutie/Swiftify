@@ -23,7 +23,10 @@
     "discord.js": "^14.3.0",
     "dotenv": "^16.0.2",
     "is-ip": "^5.0.0",
+    "js-yaml": "^4.1.0",
     "ping": "^0.4.2",
+    "sequelize": "^6.21.6",
+    "sqlite3": "^5.1.0",
     "systeminformation": "^5.12.6",
     "undici": "^5.10.0"
   },
