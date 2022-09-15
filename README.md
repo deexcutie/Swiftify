@@ -28,7 +28,7 @@ At this time, running the bot doesn't require any privileged intents.
 
 Start keeping an eye on your server by doing ```/add``` command and entering all the necessary information.
  
-Webhooks are used to send notifications, so if you haven't created one yet, do so, and replace it in the configuration file. 
+Webhooks are used to send notifications, so if you haven't created one yet, do so and replace it in the configuration file. 
 
 ## Contributing
 
