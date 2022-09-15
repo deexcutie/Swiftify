@@ -23,7 +23,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.once("ready", () => {
   Data.sync();
 
-  client.user.setPresence({ activities: [{ name: 'Swiftify.app' }] });
+  client.user.setPresence({ activities: [{ name: "Swiftify.app" }] });
 
   console.log(`Logged in as ${client.user.tag}.`);
 });
@@ -368,11 +368,9 @@ setInterval(async () => {
             .setTitle(d.display_name + " is now up!")
             .setDescription(
               "**Hostname**: " +
-                "`" +
-                d.hostname +
-                ":" +
-                d.port +
-                "`" +
+                (config.hide_ip_addresses
+                  ? "[REDACTED]"
+                  : "`" + d.hostname + ":" + d.port + "`") +
                 "\n**Check Date**: " +
                 timeString +
                 "\n**Downtime**: " +
@@ -398,11 +396,9 @@ setInterval(async () => {
             .setTitle(d.display_name + " is now down!")
             .setDescription(
               "**Hostname**: " +
-                "`" +
-                d.hostname +
-                ":" +
-                d.port +
-                "`" +
+              (config.hide_ip_addresses
+                ? "[REDACTED]"
+                : "`" + d.hostname + ":" + d.port + "`") +
                 "\n**Check Date**: " +
                 timeString +
                 "\n**Encountered Error**: Timed Out"
