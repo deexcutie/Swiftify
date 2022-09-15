@@ -1,0 +1,16 @@
+token: "YOUR_BOT_TOKEN"
+
+client_id: "YOUR_BOT_CLIENT_ID"
+
+# How often will the bot check all monitors? (in seconds)
+check_duration: 2
+
+# The longer the ping timeout, the more accurate the ping. 
+timeout: 5000
+
+ip_lookup_api: 'http://ip-api.com/json/'
+
+webhook:
+    link: "https://discord.com/api/webhooks/example"
+    username: 'Swiftify: Uptime Monitor'
+    avatar: "none"

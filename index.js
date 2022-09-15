@@ -194,20 +194,22 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.editReply({ embeds: [serverEmbed] });
   }
 
-  if (commandName === "nuke") {
-    interaction.channel.clone().then((channel) => {
-      const serverEmbed = new EmbedBuilder()
-        .setColor("#32a858")
-        .setTitle("Channel Nuked")
-        .setDescription("Everything went poof.")
-        .setImage("https://media.giphy.com/media/GzVvGQYhFZIAg/giphy.gif")
-        .setFooter({ text: "Requested by " + userTag })
-        .setTimestamp();
+  // If you need this feature, remove the comment.
 
-      channel.send({ embeds: [serverEmbed] });
-    });
-    interaction.channel.delete();
-  }
+  // if (commandName === "nuke") {
+  //   interaction.channel.clone().then((channel) => {
+  //     const serverEmbed = new EmbedBuilder()
+  //       .setColor("#32a858")
+  //       .setTitle("Channel Nuked")
+  //       .setDescription("Everything went poof.")
+  //       .setImage("https://media.giphy.com/media/GzVvGQYhFZIAg/giphy.gif")
+  //       .setFooter({ text: "Requested by " + userTag })
+  //       .setTimestamp();
+
+  //     channel.send({ embeds: [serverEmbed] });
+  //   });
+  //   interaction.channel.delete();
+  // }
 
   if (commandName === "add") {
     const display_name = interaction.options.getString("display_name");
@@ -249,7 +251,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
-const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+const rest = new REST({ version: "10" }).setToken(config.token);
 
 rest
   .put(Routes.applicationCommands(config.client_id), { body: commands })
@@ -324,10 +326,7 @@ setInterval(async () => {
               "\n**Downtime**: Unknown"
           );
 
-        webhookClient.send({
-          embeds: [embed],
-          username: config.webhook.username,
-        });
+        sendWebhookMessage(embed, null);
 
         await Data.update(
           { down: false },
@@ -341,7 +340,7 @@ setInterval(async () => {
           .setTitle(d.display_name + " is now down!")
           .setDescription(
             "**Hostname**: " +
-              d.hostname +
+              "`" + d.hostname + "`" +
               ":" +
               d.port +
               "\n**Check Date**: " +
@@ -349,10 +348,7 @@ setInterval(async () => {
               "\n**Encountered Error**: Timed Out"
           );
 
-        webhookClient.send({
-          embeds: [embed],
-          username: config.webhook.username,
-        });
+        sendWebhookMessage(embed, null);
 
         await Data.update(
           { down: true },
@@ -361,4 +357,36 @@ setInterval(async () => {
       }
     }
   });
-}, config.check_duration * 1000);
+}, config.check_duration * 1000); // in seconds
+
+function sendWebhookMessage(embed, message) {
+  if (message != null) {
+    if ((config.webhook.avatar = "none")) {
+      webhookClient.send({
+        content: message,
+        embeds: [embed],
+        username: config.webhook.username,
+      });
+    } else {
+      webhookClient.send({
+        content: message,
+        embeds: [embed],
+        username: config.webhook.username,
+        avatarURL: config.webhook.avatar,
+      });
+    }
+  } else {
+    if ((config.webhook.avatar = "none")) {
+      webhookClient.send({
+        embeds: [embed],
+        username: config.webhook.username,
+      });
+    } else {
+      webhookClient.send({
+        embeds: [embed],
+        username: config.webhook.username,
+        avatarURL: config.webhook.avatar,
+      });
+    }
+  }
+}
